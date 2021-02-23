@@ -154,6 +154,7 @@ class ControlPointEditorTool final : public TTool {
   double m_snapMinDistance;
   bool m_foundSnap;
   TPointD m_snapPoint;
+  int m_snappedStrokeIndex;
 
   TPointD m_firstPos;       // The first point inserted in m_track
   StrokeGenerator m_track;  // Lazo selection generator.
@@ -235,7 +236,7 @@ public:
   // returns true if the pressed key is recognized and processed.
   bool isEventAcceptable(QEvent *e) override;
 
-  TPointD calculateSnap(TPointD pos);
+  TPointD calculateSnap(TPointD pos, bool lock);
   void drawSnap();
   TPointD getSnap(TPointD pos);
   void resetSnap();
@@ -244,7 +245,7 @@ public:
 
 //-----------------------------------------------------------------------------
 
-TPointD ControlPointEditorTool::calculateSnap(TPointD pos) {
+TPointD ControlPointEditorTool::calculateSnap(TPointD pos, bool lock) {
   m_foundSnap = false;
   TVectorImageP vi(TTool::getImage(false));
   TPointD snapPoint = pos;
@@ -256,6 +257,27 @@ TPointD ControlPointEditorTool::calculateSnap(TPointD pos) {
     TStroke *selfStroke = m_controlPointEditorStroke.getStroke();
     TStroke *stroke;
     double distance, outW, w;
+
+    if (m_snappedStrokeIndex >= strokeNumber) {
+      m_snappedStrokeIndex = -1;
+    }
+
+    if (m_snappedStrokeIndex >= 0 && lock) {
+      stroke = vi->getStroke(m_snappedStrokeIndex);
+      if (stroke->getNearestW(pos, outW, distance)) {
+        if (areAlmostEqual(outW, 0.0, 1e-3))
+          w = 0.0;
+        else if (areAlmostEqual(outW, 1.0, 1e-3))
+          w = 1.0;
+        else
+          w = outW;
+        TThickPoint point = stroke->getPoint(w);
+        snapPoint         = TPointD(point.x, point.y);
+        m_foundSnap       = true;
+        m_snapPoint       = snapPoint;
+      }
+      return snapPoint;
+    }
 
     for (i = 0; i < strokeNumber; i++) {
       stroke = vi->getStroke(i);
@@ -269,10 +291,11 @@ TPointD ControlPointEditorTool::calculateSnap(TPointD pos) {
             w = 1.0;
           else
             w = outW;
-          TThickPoint point = stroke->getPoint(w);
-          snapPoint         = TPointD(point.x, point.y);
-          m_foundSnap       = true;
-          m_snapPoint       = snapPoint;
+          TThickPoint point    = stroke->getPoint(w);
+          snapPoint            = TPointD(point.x, point.y);
+          m_foundSnap          = true;
+          m_snapPoint          = snapPoint;
+          m_snappedStrokeIndex = i;
         }
       }
     }
@@ -310,6 +333,7 @@ ControlPointEditorTool::ControlPointEditorTool()
     , m_autoSelectDrawing("Auto Select Drawing", true)
     , m_snap("snap", false)
     , m_snapSensitivity("Sensitivity:")
+    , m_snappedStrokeIndex(-1)
     , m_selectType("Type:")
     , m_action(NONE)
     , m_cursorType(NORMAL)
@@ -816,7 +840,7 @@ void ControlPointEditorTool::leftButtonDrag(const TPointD &pos,
 
       cp = m_controlPointEditorStroke.getControlPoint(m_lastPointSelected);
       controlPoint = TPointD(cp.x, cp.y);
-      newPos       = calculateSnap(pos);
+      newPos       = calculateSnap(pos, e.isCtrlPressed());
       delta        = newPos - m_pos + (m_pos - controlPoint);
     }
 
